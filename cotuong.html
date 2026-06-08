@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cờ Tướng</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1008;font-family:Arial,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:16px;gap:12px}
+#info-bar{display:flex;align-items:center;justify-content:space-between;width:100%;max-width:560px;padding:10px 16px;background:#2a1a08;border-radius:10px;border:1px solid #5a3a10}
+#status{font-size:15px;font-weight:bold;color:#f0d090}
+#btns{display:flex;gap:8px}
+.btn{font-size:13px;padding:6px 14px;border:1px solid #8B6914;border-radius:8px;background:transparent;color:#D4A054;cursor:pointer;transition:background .15s}
+.btn:hover{background:#3a2008}
+.btn.active{background:#3a2008;border-color:#FFD700;color:#FFD700}
+#board-wrap{position:relative}
+canvas#cvs{display:block;border-radius:10px;border:2px solid #8B6914}
+#msg-overlay{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1008;border:2px solid #B7791F;border-radius:12px;padding:24px 32px;text-align:center;z-index:10}
+#msg-overlay p{font-size:20px;font-weight:bold;margin-bottom:12px;color:#FFD700}
+#msg-overlay button{padding:9px 22px;border:1px solid #8B6914;border-radius:8px;background:#2a1a08;cursor:pointer;font-size:14px;color:#D4A054}
+#msg-overlay button:hover{background:#3a2008}
+#captured{display:flex;width:100%;max-width:560px;gap:10px}
+.cap-box{flex:1;padding:7px 12px;background:#2a1a08;border-radius:8px;border:1px solid #4a2a08;font-size:12px;color:#a08040;min-height:36px}
+.cap-box span{font-size:11px;color:#705020;display:block;margin-bottom:2px}
+#legend{color:#705030;font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<div id="info-bar">
+  <div id="status">Lượt của Đỏ</div>
+  <div id="btns">
+    <button class="btn" id="btn-mode">vs AI</button>
+    <button class="btn" id="btn-new">Ván mới</button>
+  </div>
+</div>
+<div id="board-wrap">
+  <canvas id="cvs"></canvas>
+  <div id="msg-overlay"><p id="msg-text"></p><button id="msg-btn">Chơi lại</button></div>
+</div>
+<div id="captured">
+  <div class="cap-box"><span>Đỏ bắt được:</span><span id="cap-red-pieces"></span></div>
+  <div class="cap-box"><span>Đen bắt được:</span><span id="cap-blk-pieces"></span></div>
+</div>
+<div id="legend">Click quân để chọn • Ô xanh = nước đi hợp lệ • Ô xanh viền = ăn quân</div>
+
+<script>
+const COLS=9,ROWS=10,CELL=58,MX=44,MY=44;
+const CW=MX*2+CELL*(COLS-1),CH=MY*2+CELL*(ROWS-1);
+const cvs=document.getElementById('cvs');
+const ctx=cvs.getContext('2d');
+const PR=window.devicePixelRatio||1;
+cvs.width=CW*PR;cvs.height=CH*PR;
+cvs.style.width=CW+'px';cvs.style.height=CH+'px';
+ctx.scale(PR,PR);
+
+const NAMES={'k':'將','K':'帥','a':'士','A':'仕','b':'象','B':'相','n':'馬','N':'馬','r':'車','R':'車','c':'砲','C':'炮','p':'卒','P':'兵'};
+
+const INIT=[
+  ['R','N','B','A','K','A','B','N','R'],
+  ['.','.','.','.','.','.','.','.','.'],
+  ['.','C','.','.','.','.','.','C','.'],
+  ['P','.','P','.','P','.','P','.','P'],
+  ['.','.','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','.','.'],
+  ['p','.','p','.','p','.','p','.','p'],
+  ['.','c','.','.','.','.','.','c','.'],
+  ['.','.','.','.','.','.','.','.','.'],
+  ['r','n','b','a','k','a','b','n','r'],
+];
+
+const isRed=p=>p===p.toLowerCase()&&p!=='.';
+const isBlack=p=>p===p.toUpperCase()&&p!=='.';
+const onBoard=(r,c)=>r>=0&&r<10&&c>=0&&c<9;
+const inPalR=(r,c)=>r>=7&&r<=9&&c>=3&&c<=5;
+const inPalB=(r,c)=>r>=0&&r<=2&&c>=3&&c<=5;
+const cloneBoard=b=>b.map(r=>r.slice());
+
+function rawMoves(b,r,c){
+  const p=b[r][c];if(p==='.')return[];
+  const red=isRed(p),pt=p.toLowerCase(),moves=[];
+  const canTake=t=>t==='.'||(red&&isBlack(t))||((!red)&&isRed(t));
+  if(pt==='k'){
+    const pal=red?inPalR:inPalB;
+    for(const[dr,dc] of[[-1,0],[1,0],[0,-1],[0,1]]){
+      const nr=r+dr,nc=c+dc;
+      if(onBoard(nr,nc)&&pal(nr,nc)&&canTake(b[nr][nc]))moves.push([nr,nc]);
+    }
+    for(const dr2 of[-1,1]){let rr=r+dr2;while(onBoard(rr,c)){const t=b[rr][c];if(t!=='.'){if((red&&t==='K')||(!red&&t==='k'))moves.push([rr,c]);break;}rr+=dr2;}}
+  } else if(pt==='a'){
+    const pal=red?inPalR:inPalB;
+    for(const[dr,dc] of[[-1,-1],[-1,1],[1,-1],[1,1]]){const nr=r+dr,nc=c+dc;if(onBoard(nr,nc)&&pal(nr,nc)&&canTake(b[nr][nc]))moves.push([nr,nc]);}
+  } else if(pt==='b'){
+    for(const[dr,dc] of[[-2,-2],[-2,2],[2,-2],[2,2]]){
+      const nr=r+dr,nc=c+dc;if(!onBoard(nr,nc))continue;
+      if(red&&nr<5)continue;if(!red&&nr>4)continue;
+      const mr=r+dr/2,mc=c+dc/2;if(b[mr][mc]!=='.')continue;
+      if(canTake(b[nr][nc]))moves.push([nr,nc]);
+    }
+  } else if(pt==='n'){
+    for(const[dr,dc,br,bc] of[[-2,-1,-1,0],[-2,1,-1,0],[2,-1,1,0],[2,1,1,0],[-1,-2,0,-1],[-1,2,0,-1],[1,-2,0,1],[1,2,0,1]]){
+      const nr=r+dr,nc=c+dc;if(!onBoard(nr,nc))continue;
+      if(!onBoard(r+br,c+bc))continue;if(b[r+br][c+bc]!=='.')continue;
+      if(canTake(b[nr][nc]))moves.push([nr,nc]);
+    }
+  } else if(pt==='r'){
+    for(const[dr,dc] of[[-1,0],[1,0],[0,-1],[0,1]]){
+      let nr=r+dr,nc=c+dc;
+      while(onBoard(nr,nc)){const t=b[nr][nc];if(t==='.'){moves.push([nr,nc]);}else{if(canTake(t))moves.push([nr,nc]);break;}nr+=dr;nc+=dc;}
+    }
+  } else if(pt==='c'){
+    for(const[dr,dc] of[[-1,0],[1,0],[0,-1],[0,1]]){
+      let nr=r+dr,nc=c+dc,jumped=false;
+      while(onBoard(nr,nc)){const t=b[nr][nc];if(!jumped){if(t==='.'){moves.push([nr,nc]);}else jumped=true;}else{if(t!=='.'){if(canTake(t))moves.push([nr,nc]);break;}}nr+=dr;nc+=dc;}
+    }
+  } else if(pt==='p'){
+    if(red){
+      if(onBoard(r-1,c)&&canTake(b[r-1][c]))moves.push([r-1,c]);
+      if(r<=4){for(const dc of[-1,1]){if(onBoard(r,c+dc)&&canTake(b[r][c+dc]))moves.push([r,c+dc]);}}
+    } else {
+      if(onBoard(r+1,c)&&canTake(b[r+1][c]))moves.push([r+1,c]);
+      if(r>=5){for(const dc of[-1,1]){if(onBoard(r,c+dc)&&canTake(b[r][c+dc]))moves.push([r,c+dc]);}}
+    }
+  }
+  return moves;
+}
+
+function findKing(b,red){const t=red?'k':'K';for(let r=0;r<10;r++)for(let c=0;c<9;c++)if(b[r][c]===t)return[r,c];return null;}
+function inCheck(b,red){
+  const k=findKing(b,red);if(!k)return true;
+  const[kr,kc]=k;
+  for(let r=0;r<10;r++)for(let c=0;c<9;c++){
+    const p=b[r][c];if(p==='.')continue;
+    if(red&&!isBlack(p))continue;if(!red&&!isRed(p))continue;
+    if(rawMoves(b,r,c).some(([nr,nc])=>nr===kr&&nc===kc))return true;
+  }return false;
+}
+function doMove(b,r,c,nr,nc){const nb=cloneBoard(b);nb[nr][nc]=nb[r][c];nb[r][c]='.';return nb;}
+function legalMoves(b,r,c){const red=isRed(b[r][c]);return rawMoves(b,r,c).filter(([nr,nc])=>!inCheck(doMove(b,r,c,nr,nc),red));}
+function hasAnyMove(b,red){for(let r=0;r<10;r++)for(let c=0;c<9;c++){const p=b[r][c];if(p==='.')continue;if(red&&!isRed(p))continue;if(!red&&!isBlack(p))continue;if(legalMoves(b,r,c).length)return true;}return false;}
+
+const VAL={k:10000,a:200,b:220,n:400,r:900,c:450,p:100};
+function evaluate(b){let s=0;for(let r=0;r<10;r++)for(let c=0;c<9;c++){const p=b[r][c];if(p==='.')continue;const v=VAL[p.toLowerCase()]||0;s+=isRed(p)?v:-v;}return s;}
+function allMoves(b,red){const mv=[];for(let r=0;r<10;r++)for(let c=0;c<9;c++){const p=b[r][c];if(p==='.')continue;if(red&&!isRed(p))continue;if(!red&&!isBlack(p))continue;for(const[nr,nc] of legalMoves(b,r,c))mv.push([r,c,nr,nc]);}return mv;}
+function minimax(b,depth,alpha,beta,max){
+  if(depth===0)return[evaluate(b),null];
+  const mvs=allMoves(b,max);if(!mvs.length)return[max?-99999:99999,null];
+  let best=null,bestV=max?-Infinity:Infinity;
+  for(const m of mvs){
+    const nb=doMove(b,m[0],m[1],m[2],m[3]);
+    const[v]=minimax(nb,depth-1,alpha,beta,!max);
+    if(max){if(v>bestV){bestV=v;best=m;}alpha=Math.max(alpha,v);}
+    else{if(v<bestV){bestV=v;best=m;}beta=Math.min(beta,v);}
+    if(beta<=alpha)break;
+  }return[bestV,best];
+}
+
+let board,sel,legal,redTurn,gameOver,vsAI,capRed,capBlk,lastMove,checkFlash,animId;
+
+function init(){
+  board=cloneBoard(INIT);sel=null;legal=[];redTurn=true;gameOver=false;
+  capRed=[];capBlk=[];lastMove=null;checkFlash=0;
+  document.getElementById('msg-overlay').style.display='none';
+  updateStatus();updateCap();cancelAnimationFrame(animId);loop();
+}
+
+function updateStatus(){
+  const el=document.getElementById('status');
+  if(gameOver)return;
+  const chk=inCheck(board,redTurn);
+  el.textContent=(chk?'⚠ Chiếu! ':'')+'Lượt của '+(redTurn?'Đỏ':'Đen');
+  el.style.color=redTurn?'#E74C3C':'#f0d090';
+}
+function updateCap(){
+  document.getElementById('cap-red-pieces').textContent=capRed.map(p=>NAMES[p]).join(' ');
+  document.getElementById('cap-blk-pieces').textContent=capBlk.map(p=>NAMES[p]).join(' ');
+}
+
+function px(r,c){return[MX+c*CELL,MY+r*CELL];}
+function cellAt(mx,my){const c=Math.round((mx-MX)/CELL),r=Math.round((my-MY)/CELL);return onBoard(r,c)?[r,c]:null;}
+
+function drawBoard(){
+  ctx.fillStyle='#C8832A';
+  ctx.beginPath();ctx.roundRect(0,0,CW,CH,10);ctx.fill();
+  ctx.strokeStyle='#7A4E10';ctx.lineWidth=1;
+  for(let r=0;r<10;r++){const[x0,y0]=px(r,0),[x1]=px(r,8);ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y0);ctx.stroke();}
+  for(let c=0;c<9;c++){
+    const[x0,y0]=px(0,c);
+    if(c===0||c===8){const[,y1]=px(9,c);ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x0,y1);ctx.stroke();}
+    else{const[,y1]=px(4,c),[,y2]=px(5,c),[,y3]=px(9,c);ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x0,y1);ctx.stroke();ctx.beginPath();ctx.moveTo(x0,y2);ctx.lineTo(x0,y3);ctx.stroke();}
+  }
+  ctx.strokeStyle='#7A4E10';ctx.lineWidth=1;
+  for(const[[r0,c0],[r1,c1]] of[[[0,3],[2,5]],[[0,5],[2,3]],[[7,3],[9,5]],[[7,5],[9,3]]]){
+    const[x0,y0]=px(r0,c0),[x1,y1]=px(r1,c1);ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();
+  }
+  ctx.fillStyle='rgba(140,190,220,0.3)';ctx.fillRect(MX,MY+4*CELL+1,CELL*8,CELL-2);
+  ctx.fillStyle='#3A7FA0';ctx.font='bold 14px Arial,sans-serif';ctx.textAlign='center';
+  ctx.fillText('楚  河          漢  界',CW/2,MY+4*CELL+CELL/2+5);
+}
+
+function drawHighlights(){
+  if(lastMove){
+    const[r0,c0,r1,c1]=lastMove;
+    for(const[lr,lc] of[[r0,c0],[r1,c1]]){
+      const[x,y]=px(lr,lc);ctx.fillStyle='rgba(255,215,0,0.22)';
+      ctx.beginPath();ctx.roundRect(x-CELL/2+2,y-CELL/2+2,CELL-4,CELL-4,4);ctx.fill();
+    }
+  }
+  if(sel){const[sr,sc]=sel,[x,y]=px(sr,sc);ctx.strokeStyle='#FFD700';ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,CELL/2-4,0,Math.PI*2);ctx.stroke();}
+  for(const[nr,nc] of legal){
+    const[x,y]=px(nr,nc),t=board[nr][nc];
+    if(t!=='.'){ctx.strokeStyle='rgba(80,200,100,0.9)';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(x,y,CELL/2-4,0,Math.PI*2);ctx.stroke();}
+    else{ctx.fillStyle='rgba(80,200,100,0.75)';ctx.beginPath();ctx.arc(x,y,8,0,Math.PI*2);ctx.fill();}
+  }
+  if(checkFlash>0){
+    const k=findKing(board,redTurn);
+    if(k){const[x,y]=px(k[0],k[1]),alpha=Math.abs(Math.sin(checkFlash*0.18))*0.55;ctx.fillStyle=`rgba(220,50,50,${alpha})`;ctx.beginPath();ctx.arc(x,y,CELL/2,0,Math.PI*2);ctx.fill();}
+    checkFlash++;if(checkFlash>50)checkFlash=0;
+  }
+}
+
+function drawPiece(r,c){
+  const p=board[r][c];if(p==='.')return;
+  const red=isRed(p),[x,y]=px(r,c),R=CELL/2-3;
+  ctx.fillStyle='#8B6914';ctx.beginPath();ctx.arc(x,y+2,R,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=red?'#C0392B':'#1A1A1A';ctx.beginPath();ctx.arc(x,y,R,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle=red?'#922B21':'#0D0D0D';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,R-3,0,Math.PI*2);ctx.stroke();
+  ctx.font=`bold ${CELL>52?20:17}px "SimHei","Microsoft YaHei","NotoSansCJK",serif`;
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillStyle=red?'#FFD4B2':'#C8DCFF';ctx.fillText(NAMES[p]||'?',x,y+1);
+}
+
+function drawAll(){ctx.clearRect(0,0,CW,CH);drawBoard();drawHighlights();for(let r=0;r<10;r++)for(let c=0;c<9;c++)drawPiece(r,c);}
+function loop(){animId=requestAnimationFrame(()=>{drawAll();if(!gameOver)loop();});}
+
+function applyMove(r,c,nr,nc){
+  const captured=board[nr][nc];
+  if(captured!=='.'){isRed(captured)?capBlk.push(captured):capRed.push(captured);}
+  board=doMove(board,r,c,nr,nc);lastMove=[r,c,nr,nc];sel=null;legal=[];redTurn=!redTurn;
+  if(inCheck(board,redTurn))checkFlash=1;
+  if(!hasAnyMove(board,redTurn)){const w=redTurn?'Đỏ':'Đen';endGame(`🏆 ${w} thắng!`);return;}
+  updateStatus();updateCap();
+}
+
+function endGame(msg){gameOver=true;document.getElementById('msg-text').textContent=msg;document.getElementById('msg-overlay').style.display='block';drawAll();}
+
+cvs.addEventListener('click',e=>{
+  if(gameOver)return;if(vsAI&&!redTurn)return;
+  const rect=cvs.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)*(CW/rect.width),my=(e.clientY-rect.top)*(CH/rect.height);
+  const cell=cellAt(mx,my);if(!cell)return;
+  const[r,c]=cell,p=board[r][c];
+  if(sel){
+    const[sr,sc]=sel;
+    if(legal.some(([nr,nc])=>nr===r&&nc===c)){applyMove(sr,sc,r,c);if(vsAI&&!redTurn&&!gameOver)setTimeout(aiTurn,380);}
+    else if(p!=='.'&&((redTurn&&isRed(p))||(!redTurn&&isBlack(p)))){sel=[r,c];legal=legalMoves(board,r,c);}
+    else{sel=null;legal=[];}
+  } else {
+    if(p!=='.'&&((redTurn&&isRed(p))||(!redTurn&&isBlack(p)))){sel=[r,c];legal=legalMoves(board,r,c);}
+  }
+});
+
+function aiTurn(){const[,mv]=minimax(board,2,-Infinity,Infinity,false);if(mv)applyMove(...mv);else endGame('🏆 Đỏ thắng! AI chiếu bí.');}
+
+document.getElementById('btn-new').addEventListener('click',init);
+document.getElementById('btn-mode').addEventListener('click',()=>{
+  vsAI=!vsAI;
+  document.getElementById('btn-mode').textContent=vsAI?'vs Người':'vs AI';
+  document.getElementById('btn-mode').classList.toggle('active',vsAI);
+  init();
+});
+document.getElementById('msg-btn').addEventListener('click',init);
+
+vsAI=false;init();
+</script>
+</body>
+</html>
